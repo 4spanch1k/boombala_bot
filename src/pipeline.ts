@@ -16,6 +16,15 @@ export async function processIncoming(
   if (d.action === "ignore") {
     db.addMessage(wa_id, "user", text); // только сохраняем, бот молчит
     console.log(`[policy] ignore ${who(wa_id)}: ${d.reason}`);
+    if (d.rateLimited) {
+      // не молчим без объяснения: один раз предупреждаем клиента и менеджера
+      const sentNotice = db.botRepliesWithin(wa_id, 1) > 0 && !db.isOwnSent(`ratelimit:${wa_id}:${new Date().getHours()}`);
+      if (sentNotice) {
+        db.rememberSent(`ratelimit:${wa_id}:${new Date().getHours()}`);
+        await send("Я немного завалил вас сообщениями 🙈 Сейчас передам вопрос менеджеру, он ответит вам.");
+        await notify(`⏸ Бот остановлен лимитом сообщений в чате ${who(wa_id)}. Последнее: ${text}`);
+      }
+    }
     return;
   }
   const { reply } = await handleMessage(db, wa_id, text, notify);
