@@ -18,12 +18,15 @@ export type PaymentCheck = "paid" | "not_found" | "unavailable";
 
 export interface PaymentVerifier {
   name: string;
-  verify(req: { wa_id: string; amount: number; note: string }): Promise<PaymentCheck>;
+  verify(req: { wa_id: string; amount: number; note: string; hasReceipt: boolean }): Promise<PaymentCheck>;
 }
 
 /** Пока нет API банка, поступление проверить нечем: честно отвечаем «не могу проверить», проверяет менеджер. */
 const manual: PaymentVerifier = { name: "manual", verify: async () => "unavailable" };
 
-const providers: Record<string, PaymentVerifier> = { manual };
+/** Симуляция банка для тренировки: платёж «находится» только если клиент прислал чек (фото или файл). */
+const sim: PaymentVerifier = { name: "sim", verify: async (r) => (r.hasReceipt ? "paid" : "not_found") };
+
+const providers: Record<string, PaymentVerifier> = { manual, sim };
 
 export const verifier = (): PaymentVerifier => providers[process.env.PAYMENT_PROVIDER ?? "manual"] ?? manual;

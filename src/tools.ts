@@ -252,7 +252,8 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
     const lead: Partial<Lead> = conv.lead_id ? ctx.db.getLead(conv.lead_id) : {};
     const est = lead.package && lead.date ? estimate(lead.package, lead.date, lead.kids_count ?? 0, lead.adults_count ?? 0) : null;
     const pay = est && !("error" in est) ? paymentInfo(est.total) : null;
-    const check = await verifier().verify({ wa_id: ctx.wa_id, amount: pay?.amount ?? 0, note: String(args.note ?? "") });
+    const hasReceipt = ctx.db.history(ctx.wa_id, 6).some((m) => m.role === "user" && m.content.startsWith("[клиент прислал"));
+    const check = await verifier().verify({ wa_id: ctx.wa_id, amount: pay?.amount ?? 0, note: String(args.note ?? ""), hasReceipt });
     if (check === "paid") {
       ctx.db.setBookingStatus(b.id, "paid");
       ctx.db.updateConversation(ctx.wa_id, { stage: "paid" });

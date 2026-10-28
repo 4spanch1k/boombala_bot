@@ -15,6 +15,7 @@ interface Case { name: string; turns: Turn[]; busy?: { date: string; win: string
 // тестовые значения: в бою реквизиты и сумма берутся из .env
 process.env.PAYMENT_REQUISITES = "ТЕСТ: Kaspi +7 700 000 00 00";
 process.env.PREPAYMENT_PERCENT = "30";
+process.env.PAYMENT_PROVIDER = "sim";
 
 const cases: Case[] = JSON.parse(readFileSync(new URL("./cases.json", import.meta.url), "utf8"));
 const filter = process.argv[2];
