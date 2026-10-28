@@ -9,7 +9,7 @@ export const LeadSchema = z.object({
   child_age: z.number().int().min(1).max(18).describe("Возраст ребёнка"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Дата праздника YYYY-MM-DD"),
   time: z.string().regex(/^\d{2}:\d{2}$/).describe("Время начала HH:MM"),
-  kids_count: z.number().int().min(1).max(60).describe("Количество детей"),
+  kids_count: z.number().int().min(1).max(60).describe("Количество детей-гостей, не считая именинника"),
   adults_count: z.number().int().min(0).max(60).describe("Количество взрослых"),
   package: z.string().min(1).describe("Название пакета из базы знаний"),
   notes: z.string().optional().describe("Только пожелания: квест, шоу, комната, торт. НЕ количество гостей"),
@@ -65,13 +65,13 @@ export const toolDefs = [
     function: {
       name: "calculate_price",
       description:
-        "Рассчитать стоимость праздника по прайсу (пакет, будни/выходные, дополнительные дети, взрослые). ВСЕГДА используй для суммы вместо ручного счёта. Дети считаются вместе с именинником.",
+        "Рассчитать стоимость праздника по прайсу (пакет, будни/выходные, дополнительные дети, взрослые). ВСЕГДА используй для суммы вместо ручного счёта. Дети-гости считаются БЕЗ именинника (именинник бесплатно).",
       parameters: {
         type: "object",
         properties: {
           package: { type: "string", description: "WOW PARTY, MAGIC PARTY или BOOM PARTY" },
           date: { type: "string", description: "YYYY-MM-DD" },
-          kids_count: { type: "integer", description: "Всего детей, включая именинника" },
+          kids_count: { type: "integer", description: "Количество детей-гостей, НЕ считая именинника" },
           adults_count: { type: "integer" },
         },
         required: ["package", "date", "kids_count", "adults_count"],

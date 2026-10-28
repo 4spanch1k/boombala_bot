@@ -42,13 +42,13 @@ export function estimate(pkgName: string, isoDate: string, kids: number, adults:
   const base = weekday ? pkg.weekday : pkg.full;
   lines.push(`${key}${weekday ? " (будни, скидка 30%)" : ""}: ${fmt(base)}`);
 
-  const included = 1 + pkg.freeKids; // именинник + дети
-  const extra = Math.max(0, kids - included);
+  // kids — дети-гости БЕЗ именинника: он проходит бесплатно отдельно, в пакете бесплатно ещё freeKids детей
+  const extra = Math.max(0, kids - pkg.freeKids);
   const ticket = weekday ? CHILD_TICKET.weekday : CHILD_TICKET.weekend;
   const extraEach = Math.round(ticket * (1 - EXTRA_KID_DISCOUNT));
   const extraSum = extra * extraEach;
   if (extra > 0) lines.push(`Дополнительные дети: ${extra} × ${fmt(extraEach)} (вход ${fmt(ticket)} −20%) = ${fmt(extraSum)}`);
-  else lines.push(`Все дети входят в пакет (включено ${included}, считая именинника)`);
+  else lines.push(`Все дети входят в пакет (бесплатно именинник и ${pkg.freeKids} детей)`);
 
   const adultSum = adults * COMPANION;
   if (adults > 0) lines.push(`Взрослые: ${adults} × ${fmt(COMPANION)} = ${fmt(adultSum)}`);
@@ -57,7 +57,7 @@ export function estimate(pkgName: string, isoDate: string, kids: number, adults:
     total: base + extraSum + adultSum,
     lines,
     assumptions: [
-      `в число детей входит именинник (в пакете бесплатно: именинник + ${pkg.freeKids} детей)`,
+      `именинник бесплатно и в число детей не входит; в пакете бесплатно ещё ${pkg.freeKids} детей`,
       "дополнительным детям считается билет 3–15 лет; малыши до 3 лет дешевле, до 1 года бесплатно",
       "если дата праздничная, действует цена выходного дня",
       "предоплату и итог подтверждает менеджер",
