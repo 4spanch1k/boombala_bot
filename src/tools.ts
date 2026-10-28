@@ -11,15 +11,19 @@ export const LeadSchema = z.object({
   kids_count: z.number().int().min(1).max(60).describe("Количество детей"),
   adults_count: z.number().int().min(0).max(60).describe("Количество взрослых"),
   package: z.string().min(1).describe("Название пакета из базы знаний"),
-  notes: z.string().optional().describe("Пожелания, допуслуги"),
+  notes: z.string().optional().describe("Только пожелания: квест, шоу, комната, торт. НЕ количество гостей"),
+  phone: z.string().regex(/^\+?[0-9()\- ]{10,20}$/).optional().describe("Телефон для связи (нужен только в Telegram)"),
 });
 export type Lead = z.infer<typeof LeadSchema>;
 export type Draft = Partial<Lead>;
 
-const REQUIRED = Object.keys(LeadSchema.shape).filter((k) => k !== "notes") as (keyof Lead)[];
+const REQUIRED = Object.keys(LeadSchema.shape).filter((k) => k !== "notes" && k !== "phone") as (keyof Lead)[];
 
-export function missingFields(draft: Draft): string[] {
-  return REQUIRED.filter((k) => draft[k] === undefined || draft[k] === "");
+/** needPhone: в Telegram телефона клиента нет, спрашиваем его у клиента. */
+export function missingFields(draft: Draft, needPhone = false): string[] {
+  const miss: string[] = REQUIRED.filter((k) => draft[k] === undefined || draft[k] === "");
+  if (needPhone && !draft.phone) miss.push("phone");
+  return miss;
 }
 
 export const toolDefs = [
@@ -40,7 +44,8 @@ export const toolDefs = [
           kids_count: { type: "integer" },
           adults_count: { type: "integer" },
           package: { type: "string" },
-          notes: { type: "string" },
+          notes: { type: "string", description: "Только пожелания (квест, шоу, комната, торт), не количество гостей" },
+          phone: { type: "string", description: "Телефон для связи: только в Telegram, в WhatsApp не спрашивать" },
         },
       },
     },
@@ -113,20 +118,21 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
       return JSON.stringify({ error: "date_in_past", hint: "Уточните дату у клиента" });
     }
     ctx.db.updateConversation(ctx.wa_id, { draft: JSON.stringify(merged), stage: "collecting" });
-    return JSON.stringify({ saved: merged, missing: missingFields(merged) });
+    return JSON.stringify({ saved: merged, missing: missingFields(merged, ctx.wa_id.startsWith("tg_")) });
   }
 
   if (name === "confirm_booking") {
-    const missing = missingFields(draft);
+    const missing = missingFields(draft, ctx.wa_id.startsWith("tg_"));
     if (missing.length) return JSON.stringify({ error: "incomplete", missing });
     if (ctx.stageAtTurnStart !== "awaiting_confirm") {
       return JSON.stringify({ error: "summary_not_shown_yet", hint: "Сначала покажите клиенту сводку и дождитесь его «да»" });
     }
     const lead = LeadSchema.parse(draft);
-    const id = ctx.db.createLead(ctx.wa_id, { ...lead, phone: ctx.wa_id });
+    const phone = lead.phone ?? `+${ctx.wa_id}`;
+    const id = ctx.db.createLead(ctx.wa_id, { ...lead, phone });
     ctx.db.updateConversation(ctx.wa_id, { stage: "confirmed", lead_id: id });
     await ctx.notify(
-      `🎉 Новая заявка #${id}\nКлиент: ${who(ctx.wa_id)}\n${Object.entries(lead).map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
+      `🎉 Новая заявка #${id}\nКлиент: ${who(ctx.wa_id)}\nТелефон: ${phone}\n${Object.entries(lead).filter(([k]) => k !== "phone").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
     );
     return JSON.stringify({ ok: true, lead_id: id, next: "Скажите клиенту, что менеджер свяжется для подтверждения и предоплаты" });
   }

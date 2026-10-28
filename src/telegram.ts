@@ -1,6 +1,7 @@
 // Telegram-канал для тест-драйва: long polling, туннель не нужен. Запуск: npm run tg
 import { openDb } from "./db.js";
 import { processIncoming } from "./pipeline.js";
+import { plain, toTelegramHtml } from "./format.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
@@ -33,7 +34,9 @@ async function api<T = any>(method: string, body: object = {}): Promise<T | null
 async function sendMessage(chatId: number | string, text: string): Promise<string | null> {
   let lastId: string | null = null;
   for (let i = 0; i < text.length; i += 4000) {
-    const r = await api<{ message_id: number }>("sendMessage", { chat_id: chatId, text: text.slice(i, i + 4000) });
+    const chunk = text.slice(i, i + 4000);
+    let r = await api<{ message_id: number }>("sendMessage", { chat_id: chatId, text: toTelegramHtml(chunk), parse_mode: "HTML" });
+    if (!r) r = await api<{ message_id: number }>("sendMessage", { chat_id: chatId, text: plain(chunk) }); // разметка не прошла
     if (r) lastId = `tg:${chatId}:${r.message_id}`;
   }
   return lastId;

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { toWhatsApp } from "./format.js";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -52,7 +53,7 @@ export async function sendText(to: string, body: string): Promise<string | null>
       authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body } }),
+    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body: toWhatsApp(body) } }),
   });
   if (!res.ok) {
     console.error("WhatsApp send failed", res.status, await res.text());
