@@ -26,8 +26,14 @@ export function decide(db: Db, wa_id: string, channel: Channel = "whatsapp"): De
   const cooldown = Number(process.env.MANAGER_COOLDOWN_HOURS ?? 12);
   if (db.managerActiveWithin(wa_id, cooldown)) return { action: "ignore", reason: `менеджер писал в чат за последние ${cooldown} ч` };
 
-  const max = Number(process.env.MAX_REPLIES_PER_HOUR ?? 30);
-  if (db.botRepliesWithin(wa_id, 1) >= max) return { action: "ignore", reason: `лимит ${max} ответов в час`, rateLimited: true };
+  // WhatsApp: защита от зацикливания и лишних расходов. Telegram-тест: без лимита (0 = выключен)
+  const max =
+    channel === "telegram"
+      ? Number(process.env.TELEGRAM_MAX_REPLIES_PER_HOUR ?? 0)
+      : Number(process.env.MAX_REPLIES_PER_HOUR ?? 30);
+  if (max > 0 && db.botRepliesWithin(wa_id, 1) >= max) {
+    return { action: "ignore", reason: `лимит ${max} ответов в час`, rateLimited: true };
+  }
 
   return { action: mode === "shadow" ? "draft" : "reply", reason: mode };
 }
