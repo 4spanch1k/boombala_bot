@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 import { openDb } from "./db.js";
 import { handleMessage } from "./brain.js";
 import { notify } from "./notify.js";
-import { extractMessages, sendText, verifySignature } from "./whatsapp.js";
+import { extractEchoes, extractMessages, sendText, verifySignature } from "./whatsapp.js";
+import { currentMode, decide } from "./policy.js";
 
 const db = openDb();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -17,8 +18,20 @@ function enqueue(wa_id: string, job: () => Promise<void>) {
 }
 
 async function processIncoming(wa_id: string, text: string) {
+  const d = decide(db, wa_id);
+  if (d.action === "ignore") {
+    db.addMessage(wa_id, "user", text); // только сохраняем, бот молчит
+    console.log(`[policy] ignore ${wa_id.slice(0, 4)}…: ${d.reason}`);
+    return;
+  }
   const { reply } = await handleMessage(db, wa_id, text, notify);
-  if (reply) await sendText(wa_id, reply);
+  if (!reply) return;
+  if (d.action === "draft") {
+    await notify(`✏️ ЧЕРНОВИК (не отправлен) для +${wa_id}\nКлиент: ${text}\nБот ответил бы: ${reply}`);
+    return;
+  }
+  const id = await sendText(wa_id, reply);
+  if (id) db.rememberSent(id);
 }
 
 createServer((req, res) => {
@@ -42,6 +55,10 @@ createServer((req, res) => {
       res.writeHead(200).end(); // отвечаем Meta сразу
       let payload: unknown;
       try { payload = JSON.parse(raw); } catch { return; }
+      // сообщения менеджера с телефона: в этом чате бот на время замолкает
+      for (const e of extractEchoes(payload)) {
+        if (!db.isOwnSent(e.id)) db.touchManager(e.to);
+      }
       for (const m of extractMessages(payload)) {
         if (!db.markProcessed(m.id)) continue; // дубль
         enqueue(m.from, async () => {
@@ -55,4 +72,4 @@ createServer((req, res) => {
   }
 
   res.writeHead(404).end();
-}).listen(PORT, () => console.log(`Webhook listening on :${PORT}/webhook`));
+}).listen(PORT, () => console.log(`Webhook listening on :${PORT}/webhook, BOT_MODE=${currentMode()}`));

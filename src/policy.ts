@@ -1,0 +1,30 @@
+import type { Db } from "./db.js";
+
+export type BotMode = "off" | "allowlist" | "shadow" | "live";
+export type Decision = { action: "reply" | "draft" | "ignore"; reason: string };
+
+const digits = (s: string) => s.replace(/\D/g, "");
+
+export function currentMode(): BotMode {
+  const m = (process.env.BOT_MODE ?? "allowlist").toLowerCase();
+  return (["off", "allowlist", "shadow", "live"] as const).includes(m as BotMode) ? (m as BotMode) : "off";
+}
+
+function allowlist(): Set<string> {
+  return new Set((process.env.BOT_ALLOWLIST ?? "").split(",").map(digits).filter(Boolean));
+}
+
+/** Решает, что делать с входящим сообщением. Любая неопределённость = молчим. */
+export function decide(db: Db, wa_id: string): Decision {
+  const mode = currentMode();
+  if (mode === "off") return { action: "ignore", reason: "BOT_MODE=off" };
+  if (mode === "allowlist" && !allowlist().has(digits(wa_id))) return { action: "ignore", reason: "номер не в BOT_ALLOWLIST" };
+
+  const cooldown = Number(process.env.MANAGER_COOLDOWN_HOURS ?? 12);
+  if (db.managerActiveWithin(wa_id, cooldown)) return { action: "ignore", reason: `менеджер писал в чат за последние ${cooldown} ч` };
+
+  const max = Number(process.env.MAX_REPLIES_PER_HOUR ?? 6);
+  if (db.botRepliesWithin(wa_id, 1) >= max) return { action: "ignore", reason: `лимит ${max} ответов в час` };
+
+  return { action: mode === "shadow" ? "draft" : "reply", reason: mode };
+}

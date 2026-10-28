@@ -33,6 +33,7 @@ export function openDb(path = process.env.DB_PATH ?? "data/bot.db") {
       content TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS sent_ids (id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS leads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       wa_id TEXT NOT NULL,
@@ -42,8 +43,37 @@ export function openDb(path = process.env.DB_PATH ?? "data/bot.db") {
     );
   `);
 
+  // миграция: время последнего сообщения менеджера из приложения (Coexistence echo)
+  const cols = db.prepare("PRAGMA table_info(conversations)").all() as unknown as { name: string }[];
+  if (!cols.some((c) => c.name === "manager_last_at")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN manager_last_at TEXT");
+  }
+
   return {
     raw: db,
+    /** менеджер написал клиенту с телефона */
+    touchManager(wa_id: string) {
+      db.prepare("INSERT OR IGNORE INTO conversations (wa_id) VALUES (?)").run(wa_id);
+      db.prepare("UPDATE conversations SET manager_last_at = datetime('now') WHERE wa_id = ?").run(wa_id);
+    },
+    managerActiveWithin(wa_id: string, hours: number): boolean {
+      const r = db
+        .prepare("SELECT 1 AS x FROM conversations WHERE wa_id = ? AND manager_last_at > datetime('now', ?)")
+        .get(wa_id, `-${hours} hours`);
+      return !!r;
+    },
+    botRepliesWithin(wa_id: string, hours: number): number {
+      const r = db
+        .prepare("SELECT COUNT(*) AS n FROM messages WHERE wa_id = ? AND role = 'assistant' AND created_at > datetime('now', ?)")
+        .get(wa_id, `-${hours} hours`) as unknown as { n: number };
+      return Number(r.n);
+    },
+    rememberSent(id: string) {
+      db.prepare("INSERT OR IGNORE INTO sent_ids (id) VALUES (?)").run(id);
+    },
+    isOwnSent(id: string): boolean {
+      return !!db.prepare("SELECT 1 AS x FROM sent_ids WHERE id = ?").get(id);
+    },
     /** true, если сообщение новое (ещё не обработано) */
     markProcessed(id: string): boolean {
       const r = db.prepare("INSERT OR IGNORE INTO processed_messages (id) VALUES (?)").run(id);
