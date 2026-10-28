@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { openDb } from "../src/db.js";
+import { ROOMS } from "../src/calendar.js";
 import { handleMessage } from "../src/brain.js";
 
 interface Turn {
@@ -9,7 +10,11 @@ interface Turn {
   replyMustMatch?: string;
   replyMustNotMatch?: string;
 }
-interface Case { name: string; turns: Turn[] }
+interface Case { name: string; turns: Turn[]; busy?: { date: string; win: string } }
+
+// тестовые значения: в бою реквизиты и сумма берутся из .env
+process.env.PAYMENT_REQUISITES = "ТЕСТ: Kaspi +7 700 000 00 00";
+process.env.PREPAYMENT_PERCENT = "30";
 
 const cases: Case[] = JSON.parse(readFileSync(new URL("./cases.json", import.meta.url), "utf8"));
 const filter = process.argv[2];
@@ -17,6 +22,7 @@ let failed = 0;
 
 for (const c of cases.filter((c) => !filter || c.name.includes(filter))) {
   const db = openDb(":memory:");
+  if (c.busy) for (const room of ROOMS) db.holdSlot("seed", c.busy.date, c.busy.win, room, 3600_000, null);
   const problems: string[] = [];
   const transcript: string[] = [];
   for (const [i, t] of c.turns.entries()) {

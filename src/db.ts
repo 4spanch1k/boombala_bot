@@ -1,6 +1,16 @@
 import { DatabaseSync } from "node:sqlite";
 
-export type Stage = "collecting" | "awaiting_confirm" | "confirmed";
+export type Stage = "collecting" | "awaiting_confirm" | "awaiting_payment" | "confirmed" | "paid";
+
+export interface Booking {
+  id: number;
+  wa_id: string;
+  date: string;
+  win: string;
+  room: string;
+  status: "held" | "claimed" | "paid";
+  expires_at: number;
+}
 
 export interface Conversation {
   wa_id: string;
@@ -40,6 +50,16 @@ export function openDb(path = process.env.DB_PATH ?? "data/bot.db") {
       data TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'confirmed_by_client',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS bookings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wa_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      win TEXT NOT NULL,
+      room TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'held',
+      expires_at INTEGER NOT NULL,
+      lead_id INTEGER
     );
   `);
 
@@ -96,6 +116,34 @@ export function openDb(path = process.env.DB_PATH ?? "data/bot.db") {
         .prepare("SELECT role, content FROM messages WHERE wa_id = ? ORDER BY id DESC LIMIT ?")
         .all(wa_id, limit) as unknown as ChatMessage[];
       return rows.reverse();
+    },
+    /** Занятые комнаты в окне: оплаченные/заявленные как оплаченные и не истёкшие удержания. */
+    busyRooms(date: string, win: string): string[] {
+      const rows = db
+        .prepare("SELECT room FROM bookings WHERE date = ? AND win = ? AND (status != 'held' OR expires_at > ?)")
+        .all(date, win, Date.now()) as unknown as { room: string }[];
+      return rows.map((r) => r.room);
+    },
+    /** Занять слот на время holdMs. Вызывается синхронно, поэтому гонки между клиентами невозможны. */
+    holdSlot(wa_id: string, date: string, win: string, room: string, holdMs: number, lead_id: number | null): number {
+      const r = db
+        .prepare("INSERT INTO bookings (wa_id, date, win, room, expires_at, lead_id) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(wa_id, date, win, room, Date.now() + holdMs, lead_id);
+      return Number(r.lastInsertRowid);
+    },
+    latestBooking(wa_id: string): Booking | undefined {
+      return db.prepare("SELECT * FROM bookings WHERE wa_id = ? ORDER BY id DESC LIMIT 1").get(wa_id) as unknown as Booking | undefined;
+    },
+    setBookingStatus(id: number, status: Booking["status"]) {
+      db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, id);
+    },
+    /** Снять неоплаченные удержания клиента (отмена, новая бронь, /reset). */
+    releaseHeld(wa_id: string) {
+      db.prepare("DELETE FROM bookings WHERE wa_id = ? AND status = 'held'").run(wa_id);
+    },
+    getLead(id: number): Record<string, any> {
+      const r = db.prepare("SELECT data FROM leads WHERE id = ?").get(id) as unknown as { data: string } | undefined;
+      return r ? JSON.parse(r.data) : {};
     },
     createLead(wa_id: string, data: unknown): number {
       const r = db.prepare("INSERT INTO leads (wa_id, data) VALUES (?, ?)").run(wa_id, JSON.stringify(data));

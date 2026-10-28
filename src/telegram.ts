@@ -55,12 +55,15 @@ const GREETING =
 
 function resetConversation(wa_id: string) {
   db.raw.prepare("DELETE FROM messages WHERE wa_id = ?").run(wa_id);
+  db.releaseHeld(wa_id);
   db.raw.prepare("UPDATE conversations SET human_mode = 0, stage = 'collecting', draft = '{}', lead_id = NULL WHERE wa_id = ?").run(wa_id);
 }
 
 async function onMessage(msg: any) {
   const chatId = String(msg.chat.id);
-  const text: string | undefined = msg.text;
+  // чек приходит фото или файлом: передаём боту пометку, сам файл бот не читает
+  const attachment = msg.photo ? "фото" : msg.document ? "файл" : undefined;
+  const text: string | undefined = msg.text ?? (attachment ? `[клиент прислал ${attachment}${msg.caption ? `: ${msg.caption}` : ""}]` : undefined);
   if (msg.chat.type !== "private") return; // группа менеджеров и прочее: только уведомления
   const wa_id = `tg_${chatId}`;
 
@@ -71,7 +74,7 @@ async function onMessage(msg: any) {
     return void (await sendMessage(chatId, "Диалог сброшен. Чем могу помочь?"));
   }
   if (!text) {
-    return void (await sendMessage(chatId, "Пока я понимаю только текст. Напишите, пожалуйста, сообщением 🙂"));
+    return void (await sendMessage(chatId, "Пока я понимаю только текст, фото и файлы. Напишите, пожалуйста, сообщением 🙂"));
   }
   void api("sendChatAction", { chat_id: chatId, action: "typing" });
   await processIncoming(db, "telegram", wa_id, text, (reply) => sendMessage(chatId, reply));
