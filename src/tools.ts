@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { who } from "./who.js";
+import { estimate } from "./pricing.js";
 import type { Db } from "./db.js";
 
 export const LeadSchema = z.object({
@@ -57,6 +58,24 @@ export const toolDefs = [
       description:
         "Оформить заявку. Вызывать ТОЛЬКО после того, как вы показали клиенту сводку и клиент явно ответил «да/подтверждаю». Если заявка не готова, вернёт ошибку.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "calculate_price",
+      description:
+        "Рассчитать стоимость праздника по прайсу (пакет, будни/выходные, дополнительные дети, взрослые). ВСЕГДА используй для суммы вместо ручного счёта. Дети считаются вместе с именинником.",
+      parameters: {
+        type: "object",
+        properties: {
+          package: { type: "string", description: "WOW PARTY, MAGIC PARTY или BOOM PARTY" },
+          date: { type: "string", description: "YYYY-MM-DD" },
+          kids_count: { type: "integer", description: "Всего детей, включая именинника" },
+          adults_count: { type: "integer" },
+        },
+        required: ["package", "date", "kids_count", "adults_count"],
+      },
     },
   },
   {
@@ -129,12 +148,23 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
     }
     const lead = LeadSchema.parse(draft);
     const phone = lead.phone ?? `+${ctx.wa_id}`;
+    const est = estimate(lead.package, lead.date, lead.kids_count, lead.adults_count);
+    const estText = "error" in est ? "расчёт не выполнен" : `${est.total.toLocaleString("ru-RU").replace(/\u00a0/g, " ")} ₸ (${est.lines.join("; ")})`;
     const id = ctx.db.createLead(ctx.wa_id, { ...lead, phone });
     ctx.db.updateConversation(ctx.wa_id, { stage: "confirmed", lead_id: id });
     await ctx.notify(
-      `🎉 Новая заявка #${id}\nКлиент: ${who(ctx.wa_id)}\nТелефон: ${phone}\n${Object.entries(lead).filter(([k]) => k !== "phone").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
+      `🎉 Новая заявка #${id}\nКлиент: ${who(ctx.wa_id)}\nТелефон: ${phone}\nРасчёт по прайсу: ${estText}\n${Object.entries(lead).filter(([k]) => k !== "phone").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
     );
     return JSON.stringify({ ok: true, lead_id: id, next: "Скажите клиенту, что менеджер свяжется для подтверждения и предоплаты" });
+  }
+
+  if (name === "calculate_price") {
+    const a = args as { package?: string; date?: string; kids_count?: number; adults_count?: number };
+    if (!a.package || !a.date || !Number.isInteger(a.kids_count) || !Number.isInteger(a.adults_count)) {
+      return JSON.stringify({ error: "нужны package, date, kids_count, adults_count" });
+    }
+    const r = estimate(a.package, a.date, a.kids_count as number, a.adults_count as number);
+    return JSON.stringify("error" in r ? r : { ...r, total_text: `${r.total.toLocaleString("ru-RU").replace(/\u00a0/g, " ")} ₸` });
   }
 
   if (name === "ask_manager") {
