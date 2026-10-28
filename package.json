@@ -8,7 +8,8 @@
     "start": "tsx --env-file=.env src/server.ts",
     "eval": "tsx --env-file=.env evals/run.ts",
     "chat": "tsx --env-file=.env src/cli.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tg": "tsx --env-file=.env src/telegram.ts"
   },
   "dependencies": {
     "openai": "^4.77.0",

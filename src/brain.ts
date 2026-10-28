@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { readFileSync } from "node:fs";
+import { who } from "./who.js";
 import type { Db } from "./db.js";
 import { missingFields, runTool, toolDefs, type Draft } from "./tools.js";
 
@@ -34,6 +35,20 @@ function systemPrompt(draft: Draft, stage: string): string {
 ${knowledge()}`;
 }
 
+/** Короткие сетевые сбои не должны отправлять клиента к менеджеру: пробуем ещё раз. */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw last;
+}
+
 export interface HandleResult {
   reply: string | null; // null — бот молчит (human_mode)
   toolCalls: string[];
@@ -59,12 +74,9 @@ export async function handleMessage(
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const res = await client.chat.completions.create({
-        model: MODEL,
-        messages,
-        tools: toolDefs,
-        temperature: 0.3,
-      });
+      const res = await withRetry(() =>
+        client.chat.completions.create({ model: MODEL, messages, tools: toolDefs, temperature: 0.3 }),
+      );
       const msg = res.choices[0].message;
       messages.push(msg);
       if (!msg.tool_calls?.length) {
@@ -86,9 +98,9 @@ export async function handleMessage(
   }
 
   if (!reply) {
-    reply = "Секунду, уточню у менеджера и вернусь к вам.";
-    db.updateConversation(wa_id, { human_mode: 1 });
-    await notify(`⚠️ Бот не смог ответить, нужен менеджер.\nТел: +${wa_id}\nПоследнее: ${text}`);
+    // сбой ИИ: не замолкаем навсегда, просим повторить и сообщаем менеджеру
+    reply = "Извините, небольшой технический сбой. Повторите, пожалуйста, ваше сообщение через минуту 🙏";
+    await notify(`⚠️ Сбой ИИ при ответе клиенту ${who(wa_id)}. Последнее сообщение: ${text}`);
   }
 
   // если заявка собрана полностью и ещё не подтверждена — ждём «да» на следующем ходе

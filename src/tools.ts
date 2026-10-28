@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { who } from "./who.js";
 import type { Db } from "./db.js";
 
 export const LeadSchema = z.object({
@@ -112,14 +113,14 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
     const id = ctx.db.createLead(ctx.wa_id, { ...lead, phone: ctx.wa_id });
     ctx.db.updateConversation(ctx.wa_id, { stage: "confirmed", lead_id: id });
     await ctx.notify(
-      `🎉 Новая заявка #${id}\nТел: +${ctx.wa_id}\n${Object.entries(lead).map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
+      `🎉 Новая заявка #${id}\nКлиент: ${who(ctx.wa_id)}\n${Object.entries(lead).map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
     );
     return JSON.stringify({ ok: true, lead_id: id, next: "Скажите клиенту, что менеджер свяжется для подтверждения и предоплаты" });
   }
 
   if (name === "handoff_to_human") {
     ctx.db.updateConversation(ctx.wa_id, { human_mode: 1 });
-    await ctx.notify(`🙋 Нужен менеджер\nТел: +${ctx.wa_id}\nПричина: ${args.reason}\n${args.summary}`);
+    await ctx.notify(`🙋 Нужен менеджер\nКлиент: ${who(ctx.wa_id)}\nПричина: ${args.reason}\n${args.summary}`);
     return JSON.stringify({ ok: true });
   }
 

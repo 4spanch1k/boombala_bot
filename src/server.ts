@@ -1,9 +1,8 @@
 import { createServer } from "node:http";
 import { openDb } from "./db.js";
-import { handleMessage } from "./brain.js";
-import { notify } from "./notify.js";
+import { processIncoming } from "./pipeline.js";
 import { extractEchoes, extractMessages, sendText, verifySignature } from "./whatsapp.js";
-import { currentMode, decide } from "./policy.js";
+import { currentMode } from "./policy.js";
 
 const db = openDb();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -17,21 +16,8 @@ function enqueue(wa_id: string, job: () => Promise<void>) {
   next.finally(() => chains.get(wa_id) === next && chains.delete(wa_id));
 }
 
-async function processIncoming(wa_id: string, text: string) {
-  const d = decide(db, wa_id);
-  if (d.action === "ignore") {
-    db.addMessage(wa_id, "user", text); // только сохраняем, бот молчит
-    console.log(`[policy] ignore ${wa_id.slice(0, 4)}…: ${d.reason}`);
-    return;
-  }
-  const { reply } = await handleMessage(db, wa_id, text, notify);
-  if (!reply) return;
-  if (d.action === "draft") {
-    await notify(`✏️ ЧЕРНОВИК (не отправлен) для +${wa_id}\nКлиент: ${text}\nБот ответил бы: ${reply}`);
-    return;
-  }
-  const id = await sendText(wa_id, reply);
-  if (id) db.rememberSent(id);
+function processWhatsApp(wa_id: string, text: string) {
+  return processIncoming(db, "whatsapp", wa_id, text, (reply) => sendText(wa_id, reply));
 }
 
 createServer((req, res) => {
@@ -62,7 +48,7 @@ createServer((req, res) => {
       for (const m of extractMessages(payload)) {
         if (!db.markProcessed(m.id)) continue; // дубль
         enqueue(m.from, async () => {
-          if (m.type === "text" && m.text) return processIncoming(m.from, m.text);
+          if (m.type === "text" && m.text) return processWhatsApp(m.from, m.text);
           // голосовые/фото — на втором этапе
           await sendText(m.from, "Пока я понимаю только текст. Напишите, пожалуйста, сообщением 🙂");
         });

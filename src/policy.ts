@@ -1,12 +1,15 @@
 import type { Db } from "./db.js";
 
+export type Channel = "whatsapp" | "telegram";
 export type BotMode = "off" | "allowlist" | "shadow" | "live";
 export type Decision = { action: "reply" | "draft" | "ignore"; reason: string };
 
 const digits = (s: string) => s.replace(/\D/g, "");
 
-export function currentMode(): BotMode {
-  const m = (process.env.BOT_MODE ?? "allowlist").toLowerCase();
+export function currentMode(channel: Channel = "whatsapp"): BotMode {
+  // Telegram-бот закрытый тестовый: по умолчанию отвечает всем, кто ему написал
+  const raw = channel === "telegram" ? (process.env.TELEGRAM_MODE ?? "live") : (process.env.BOT_MODE ?? "allowlist");
+  const m = raw.toLowerCase();
   return (["off", "allowlist", "shadow", "live"] as const).includes(m as BotMode) ? (m as BotMode) : "off";
 }
 
@@ -15,8 +18,8 @@ function allowlist(): Set<string> {
 }
 
 /** Решает, что делать с входящим сообщением. Любая неопределённость = молчим. */
-export function decide(db: Db, wa_id: string): Decision {
-  const mode = currentMode();
+export function decide(db: Db, wa_id: string, channel: Channel = "whatsapp"): Decision {
+  const mode = currentMode(channel);
   if (mode === "off") return { action: "ignore", reason: "BOT_MODE=off" };
   if (mode === "allowlist" && !allowlist().has(digits(wa_id))) return { action: "ignore", reason: "номер не в BOT_ALLOWLIST" };
 
