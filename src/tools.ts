@@ -57,9 +57,22 @@ export const toolDefs = [
   {
     type: "function" as const,
     function: {
+      name: "ask_manager",
+      description:
+        "Сообщить менеджеру о вопросе клиента, ответа на который нет в базе знаний (часы работы, правила, вместимость и т.п.). Бот НЕ замолкает и продолжает помогать клиенту по остальному.",
+      parameters: {
+        type: "object",
+        properties: { question: { type: "string", description: "Вопрос клиента без ответа" } },
+        required: ["question"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "handoff_to_human",
       description:
-        "Передать диалог менеджеру: жалоба, возврат, скидка, нестандартный запрос, нет ответа в базе знаний, клиент просит человека.",
+        "Полностью передать диалог менеджеру (бот замолкает): жалоба, возврат, происшествие, безопасность ребёнка, скидка, нестандартный запрос, клиент просит человека, клиент готов оплатить/подтвердить бронь.",
       parameters: {
         type: "object",
         properties: {
@@ -116,6 +129,11 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
       `🎉 Новая заявка #${id}\nКлиент: ${who(ctx.wa_id)}\n${Object.entries(lead).map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nЖдёт подтверждения менеджера/предоплаты.`,
     );
     return JSON.stringify({ ok: true, lead_id: id, next: "Скажите клиенту, что менеджер свяжется для подтверждения и предоплаты" });
+  }
+
+  if (name === "ask_manager") {
+    await ctx.notify(`❓ Вопрос без ответа в базе\nКлиент: ${who(ctx.wa_id)}\n${args.question}`);
+    return JSON.stringify({ ok: true, instruction: "Скажи клиенту, что уточнишь у менеджера, и продолжай помогать по остальному" });
   }
 
   if (name === "handoff_to_human") {
